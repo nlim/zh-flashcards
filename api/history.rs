@@ -13,6 +13,21 @@ fn error_response(status: u16, msg: &str) -> Result<Response<ResponseBody>, Erro
         .unwrap())
 }
 
+/// One answer recorded per quiz question, sent by the frontend when saving a session.
+#[derive(Deserialize)]
+struct AnswerRecord {
+    vocab: String,   // the question text shown to the user (chars / pinyin / english)
+    correct: bool,
+}
+
+/// Stored in Redis under `perf:<user>:<mode>` for per-vocab tracking.
+#[derive(Serialize, Deserialize)]
+struct PerfEntry {
+    date: String,
+    vocab: String,
+    correct: bool,
+}
+
 #[derive(Deserialize)]
 struct SaveRequest {
     name: String,
@@ -20,6 +35,8 @@ struct SaveRequest {
     total: u32,
     mode: String,
     date: String,
+    /// Per-question answer records; optional for backwards compatibility.
+    answers: Option<Vec<AnswerRecord>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -147,6 +164,33 @@ async fn handler(req: Request, _: AppState) -> Result<Response<ResponseBody>, Er
                 .await
                 .map_err(|e| format!("Redis RPUSH error: {e}"))?;
 
+            // Persist per-answer performance data if provided
+            if let Some(answers) = &payload.answers {
+                if !answers.is_empty() {
+                    let perf_key = format!("perf:{}:{}", payload.name.to_lowercase(), payload.mode);
+                    let mut pipe = redis::pipe();
+                    for answer in answers {
+                        let entry = serde_json::to_string(&PerfEntry {
+                            date: payload.date.clone(),
+                            vocab: answer.vocab.clone(),
+                            correct: answer.correct,
+                        })
+                        .unwrap();
+                        pipe.rpush(&perf_key, entry).ignore();
+                    }
+                    let (): () = pipe.query_async(&mut con)
+                        .await
+                        .map_err(|e| format!("Redis pipeline (perf) error: {e}"))?;
+
+                    info!(
+                        name = %payload.name,
+                        mode = %payload.mode,
+                        count = answers.len(),
+                        "Saved per-vocab performance entries"
+                    );
+                }
+            }
+
             info!(
                 name = %payload.name,
                 correct = payload.correct,
@@ -184,4 +228,3 @@ async fn main() -> Result<(), Error> {
     let app = service_fn(handler);
     vercel_runtime::run(app).await
 }
-
