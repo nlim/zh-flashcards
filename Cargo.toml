@@ -1,0 +1,30 @@
+[package]
+name = "zh-flashcards"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+vercel_runtime = { version = "2", features = ["axum"] }
+tokio = { version = "1", features = ["full"] }
+http-body-util = "0.1"
+http = "1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+redis = { version = "0.23", features = ["tokio-native-tls-comp"] }
+rand = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[[bin]]
+name = "quiz"
+path = "api/quiz.rs"
+
+[[bin]]
+name = "history"
+path = "api/history.rs"
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+opt-level = 3
+

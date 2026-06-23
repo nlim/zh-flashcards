@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>中文 Flashcards</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <style>
+    :root {
+      --red: #c0392b;
+      --gold: #f39c12;
+    }
+
+    body {
+      background: #f8f9fa;
+      min-height: 100vh;
+    }
+
+    .navbar-brand {
+      font-size: 1.4rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    .zh-char {
+      font-size: 4rem;
+      line-height: 1.2;
+      font-family: "PingFang SC", "Microsoft YaHei", "SimHei", serif;
+      color: var(--red);
+      text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
+    }
+
+    .pinyin-text {
+      font-size: 2.2rem;
+      font-style: italic;
+      color: #555;
+    }
+
+    .english-text {
+      font-size: 1.8rem;
+      color: #333;
+    }
+
+    .question-card {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+      padding: 2rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .option-btn {
+      border-radius: 10px;
+      padding: 0.75rem 1.2rem;
+      text-align: left;
+      font-size: 1rem;
+      transition: all 0.15s ease;
+      border: 2px solid #dee2e6;
+      background: white;
+      color: #333;
+      margin-bottom: 0.6rem;
+    }
+
+    .option-btn:hover:not(:disabled) {
+      border-color: #0d6efd;
+      background: #f0f5ff;
+      transform: translateX(3px);
+    }
+
+    .option-btn.correct {
+      border-color: #198754;
+      background: #d1e7dd;
+      color: #0f5132;
+    }
+
+    .option-btn.wrong {
+      border-color: #dc3545;
+      background: #f8d7da;
+      color: #842029;
+    }
+
+    .option-letter {
+      display: inline-block;
+      width: 1.8rem;
+      height: 1.8rem;
+      line-height: 1.8rem;
+      text-align: center;
+      border-radius: 50%;
+      background: #e9ecef;
+      font-weight: 700;
+      font-size: 0.85rem;
+      margin-right: 0.6rem;
+      flex-shrink: 0;
+    }
+
+    .option-btn.correct .option-letter {
+      background: #198754;
+      color: white;
+    }
+
+    .option-btn.wrong .option-letter {
+      background: #dc3545;
+      color: white;
+    }
+
+    .score-circle {
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto;
+      border: 6px solid currentColor;
+    }
+
+    .score-circle .score-num {
+      font-size: 2rem;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .score-circle .score-pct {
+      font-size: 0.85rem;
+      opacity: 0.8;
+    }
+
+    .mode-card {
+      cursor: pointer;
+      border: 2px solid #dee2e6;
+      border-radius: 12px;
+      transition: all 0.15s ease;
+      padding: 1rem;
+    }
+
+    .mode-card:hover {
+      border-color: #0d6efd;
+      background: #f0f5ff;
+    }
+
+    .mode-card.selected {
+      border-color: #0d6efd;
+      background: #e7f0ff;
+    }
+
+    .mode-card input[type="radio"] {
+      display: none;
+    }
+
+    .progress {
+      height: 8px;
+      border-radius: 4px;
+    }
+
+    .breakdown-item {
+      border-radius: 8px;
+      margin-bottom: 0.5rem;
+      padding: 0.75rem 1rem;
+    }
+
+    .history-table th {
+      background: #f8f9fa;
+    }
+
+    .flag-badge {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.78rem;
+      font-weight: 600;
+    }
+
+    .screen { display: none; }
+    .screen.active { display: block; }
+  </style>
+</head>
+<body>
+
+<!-- Navbar -->
+<nav class="navbar navbar-dark" style="background: var(--red);">
+  <div class="container">
+    <span class="navbar-brand">🏮 中文 Flashcards</span>
+    <button id="btn-nav-history" class="btn btn-outline-light btn-sm" style="display:none"
+      onclick="showHistory()">📊 My History</button>
+  </div>
+</nav>
+
+<div class="container py-4" style="max-width: 640px;">
+
+  <!-- ── Screen: Welcome ── -->
+  <div id="screen-welcome" class="screen active">
+    <div class="card border-0 shadow-sm rounded-4 p-4 mt-3">
+      <div class="text-center mb-4">
+        <div style="font-size:3rem;">🏮</div>
+        <h2 class="fw-bold mt-2">中文 Flashcards</h2>
+        <p class="text-muted">Practice Chinese vocabulary with interactive quizzes</p>
+      </div>
+      <div class="mb-3">
+        <label for="input-name" class="form-label fw-semibold">Your name</label>
+        <input id="input-name" type="text" class="form-control form-control-lg" placeholder="Enter your name"
+          autocomplete="given-name" />
+      </div>
+      <button class="btn btn-lg w-100 text-white fw-bold" style="background:var(--red);"
+        onclick="goToMode()">Continue →</button>
+    </div>
+  </div>
+
+  <!-- ── Screen: Mode Selection ── -->
+  <div id="screen-mode" class="screen">
+    <div class="card border-0 shadow-sm rounded-4 p-4 mt-3">
+      <h4 class="fw-bold mb-1">Hello, <span id="mode-name-label"></span>!</h4>
+      <p class="text-muted mb-4">Choose a quiz mode to get started.</p>
+
+      <div class="d-grid gap-2">
+        <label class="mode-card selected" id="mcard-zh_to_en">
+          <input type="radio" name="mode" value="zh_to_en" checked />
+          <div class="d-flex align-items-center gap-3">
+            <span style="font-size:1.8rem;font-family:serif;">汉</span>
+            <div>
+              <div class="fw-semibold">Characters → English</div>
+              <small class="text-muted">See a Chinese character, pick the English meaning</small>
+            </div>
+          </div>
+        </label>
+
+        <label class="mode-card" id="mcard-pinyin_to_en">
+          <input type="radio" name="mode" value="pinyin_to_en" />
+          <div class="d-flex align-items-center gap-3">
+            <span style="font-size:1.8rem;">pīn</span>
+            <div>
+              <div class="fw-semibold">Pinyin → English</div>
+              <small class="text-muted">See a pinyin word, pick the English meaning</small>
+            </div>
+          </div>
+        </label>
+
+        <label class="mode-card" id="mcard-en_to_pinyin">
+          <input type="radio" name="mode" value="en_to_pinyin" />
+          <div class="d-flex align-items-center gap-3">
+            <span style="font-size:1.8rem;">🔤</span>
+            <div>
+              <div class="fw-semibold">English → Pinyin</div>
+              <small class="text-muted">See an English word, pick the correct pinyin</small>
+            </div>
+          </div>
+        </label>
+
+        <label class="mode-card" id="mcard-en_to_zh">
+          <input type="radio" name="mode" value="en_to_zh" />
+          <div class="d-flex align-items-center gap-3">
+            <span style="font-size:1.8rem;">✍️</span>
+            <div>
+              <div class="fw-semibold">English → Characters</div>
+              <small class="text-muted">See an English word, pick the Chinese character</small>
+            </div>
+          </div>
+        </label>
+      </div>
+
+      <div class="d-flex gap-2 mt-4">
+        <button class="btn btn-outline-secondary" onclick="showScreen('screen-welcome')">← Back</button>
+        <button id="btn-begin" class="btn text-white fw-bold flex-grow-1" style="background:var(--red);"
+          onclick="beginQuiz()">Start Quiz 🚀</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Screen: Quiz ── -->
+  <div id="screen-quiz" class="screen">
+    <div class="d-flex justify-content-between align-items-center mb-2 mt-3">
+      <span id="quiz-progress" class="text-muted small fw-semibold"></span>
+      <span id="quiz-mode-badge" class="badge bg-secondary"></span>
+    </div>
+    <div class="progress mb-3">
+      <div id="quiz-progress-bar" class="progress-bar" style="background:var(--red); width:0%"></div>
+    </div>
+
+    <div class="question-card text-center">
+      <p class="text-muted small mb-1" id="question-prompt">What does this mean?</p>
+      <div id="question-text" class="zh-char py-2">—</div>
+    </div>
+
+    <div id="options-container"></div>
+
+    <div id="answer-feedback" class="alert mt-2" style="display:none;"></div>
+
+    <button id="btn-next" class="btn text-white fw-bold w-100 mt-2" style="background:var(--red);display:none;"
+      onclick="nextQuestion()">Next Question →</button>
+  </div>
+
+  <!-- ── Screen: Results ── -->
+  <div id="screen-results" class="screen">
+    <div class="card border-0 shadow-sm rounded-4 p-4 mt-3 text-center">
+      <h4 class="fw-bold mb-3">Quiz Complete! 🎉</h4>
+      <div id="score-circle" class="score-circle text-success mb-3">
+        <span class="score-num" id="result-score">0/10</span>
+        <span class="score-pct" id="result-pct">0%</span>
+      </div>
+      <p class="text-muted" id="result-mode-label"></p>
+      <div class="d-flex gap-2 justify-content-center mt-3">
+        <button class="btn btn-outline-secondary" onclick="playAgain()">Play Again</button>
+        <button class="btn text-white" style="background:var(--red);" onclick="showHistory()">📊 View History</button>
+      </div>
+    </div>
+
+    <h6 class="fw-bold mt-4 mb-2">Question Breakdown</h6>
+    <div id="result-breakdown"></div>
+  </div>
+
+  <!-- ── Screen: History ── -->
+  <div id="screen-history" class="screen">
+    <div class="card border-0 shadow-sm rounded-4 p-4 mt-3">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+          <h4 class="fw-bold mb-0">Session History</h4>
+          <p class="text-muted small mb-0">Results for <strong id="history-name"></strong></p>
+        </div>
+        <button class="btn btn-outline-secondary btn-sm" onclick="playAgain()">New Quiz</button>
+      </div>
+
+      <div id="history-loading" class="text-center text-muted py-4" style="display:none;">
+        <div class="spinner-border spinner-border-sm me-2"></div>Loading…
+      </div>
+
+      <div class="table-responsive">
+        <table class="table table-hover history-table align-middle mb-0">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Mode</th>
+              <th>Score</th>
+              <th>Result</th>
+            </tr>
+          </thead>
+          <tbody id="history-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /container -->
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+const state = {
+  name: '',
+  mode: '',
+  questions: [],    // [{question, options, correct_index}]
+  currentIndex: 0,
+  userAnswers: [],  // [{selected, correct, isCorrect, question, correctAnswer, selectedAnswer}]
+  answered: false,
+};
+
+const MODE_LABELS = {
+  zh_to_en:     'Characters → English',
+  pinyin_to_en: 'Pinyin → English',
+  en_to_pinyin: 'English → Pinyin',
+  en_to_zh:     'English → Characters',
+};
+
+const MODE_PROMPTS = {
+  zh_to_en:     'What does this character mean?',
+  pinyin_to_en: 'What does this pinyin word mean?',
+  en_to_pinyin: 'Choose the correct pinyin:',
+  en_to_zh:     'Choose the correct Chinese character:',
+};
+
+// ── Screen helpers ─────────────────────────────────────────────────────────
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+// ── Welcome → Mode ────────────────────────────────────────────────────────
+function goToMode() {
+  const name = document.getElementById('input-name').value.trim();
+  if (!name) {
+    document.getElementById('input-name').classList.add('is-invalid');
+    document.getElementById('input-name').focus();
+    return;
+  }
+  document.getElementById('input-name').classList.remove('is-invalid');
+  state.name = name;
+  document.getElementById('mode-name-label').textContent = name;
+  document.getElementById('btn-nav-history').style.display = '';
+  showScreen('screen-mode');
+}
+
+// ── Mode card highlight ───────────────────────────────────────────────────
+document.querySelectorAll('input[name="mode"]').forEach(radio => {
+  radio.addEventListener('change', () => {
+    document.querySelectorAll('.mode-card').forEach(c => c.classList.remove('selected'));
+    radio.closest('.mode-card').classList.add('selected');
+  });
+});
+
+document.getElementById('input-name').addEventListener('keydown', e => {
+  if (e.key === 'Enter') goToMode();
+});
+
+// ── Begin Quiz ────────────────────────────────────────────────────────────
+async function beginQuiz() {
+  const modeEl = document.querySelector('input[name="mode"]:checked');
+  if (!modeEl) return;
+  state.mode = modeEl.value;
+  state.questions = [];
+  state.currentIndex = 0;
+  state.userAnswers = [];
+
+  const btn = document.getElementById('btn-begin');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Loading…';
+
+  try {
+    const res = await fetch('/api/quiz', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: state.name, mode: state.mode }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to load quiz');
+    state.questions = data.questions;
+    showScreen('screen-quiz');
+    document.getElementById('quiz-mode-badge').textContent = MODE_LABELS[state.mode] || state.mode;
+    renderQuestion();
+  } catch (e) {
+    alert('Error loading quiz: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Start Quiz 🚀';
+  }
+}
+
+// ── Render Question ───────────────────────────────────────────────────────
+function renderQuestion() {
+  const q = state.questions[state.currentIndex];
+  const total = state.questions.length;
+  const current = state.currentIndex + 1;
+
+  document.getElementById('quiz-progress').textContent = `Question ${current} of ${total}`;
+  document.getElementById('quiz-progress-bar').style.width = `${(current / total) * 100}%`;
+  document.getElementById('question-prompt').textContent = MODE_PROMPTS[state.mode] || '';
+
+  // Style the question text based on mode
+  const questionEl = document.getElementById('question-text');
+  questionEl.textContent = q.question;
+  if (state.mode === 'zh_to_en') {
+    questionEl.className = 'zh-char py-2';
+  } else if (state.mode === 'pinyin_to_en') {
+    questionEl.className = 'pinyin-text py-2';
+  } else {
+    questionEl.className = 'english-text py-2';
+  }
+
+  // Render options
+  const optionsEl = document.getElementById('options-container');
+  optionsEl.innerHTML = '';
+  state.answered = false;
+  document.getElementById('btn-next').style.display = 'none';
+  document.getElementById('answer-feedback').style.display = 'none';
+
+  const isChineseAnswer = state.mode === 'en_to_zh';
+
+  q.options.forEach((option, idx) => {
+    const btn = document.createElement('button');
+    btn.className = 'option-btn w-100 d-flex align-items-center';
+    if (isChineseAnswer) {
+      btn.style.fontFamily = '"PingFang SC","Microsoft YaHei","SimHei",serif';
+      btn.style.fontSize = '1.4rem';
+    }
+    btn.dataset.idx = idx;
+    btn.innerHTML = `<span class="option-letter">${String.fromCharCode(65 + idx)}</span><span>${option}</span>`;
+    btn.addEventListener('click', () => selectAnswer(idx));
+    optionsEl.appendChild(btn);
+  });
+}
+
+// ── Select Answer ─────────────────────────────────────────────────────────
+function selectAnswer(selectedIdx) {
+  if (state.answered) return;
+  state.answered = true;
+
+  const q = state.questions[state.currentIndex];
+  const correct = q.correct_index;
+  const isCorrect = selectedIdx === correct;
+
+  state.userAnswers.push({
+    selected: selectedIdx,
+    correct,
+    isCorrect,
+    question: q.question,
+    correctAnswer: q.options[correct],
+    selectedAnswer: q.options[selectedIdx],
+  });
+
+  // Highlight options
+  document.querySelectorAll('.option-btn').forEach((btn, idx) => {
+    btn.disabled = true;
+    if (idx === correct) {
+      btn.classList.add('correct');
+    } else if (idx === selectedIdx) {
+      btn.classList.add('wrong');
+    }
+  });
+
+  // Feedback
+  const feedbackEl = document.getElementById('answer-feedback');
+  feedbackEl.style.display = '';
+  if (isCorrect) {
+    feedbackEl.className = 'alert alert-success mb-0';
+    feedbackEl.textContent = '✓ Correct!';
+  } else {
+    feedbackEl.className = 'alert alert-danger mb-0';
+    const isChineseAnswer = state.mode === 'en_to_zh';
+    feedbackEl.innerHTML = `✗ Incorrect. The correct answer is: <strong style="${isChineseAnswer ? 'font-family:serif;font-size:1.3em' : ''}">${q.options[correct]}</strong>`;
+  }
+
+  const isLast = state.currentIndex === state.questions.length - 1;
+  const btnNext = document.getElementById('btn-next');
+  btnNext.textContent = isLast ? 'See Results →' : 'Next Question →';
+  btnNext.style.display = '';
+}
+
+// ── Next / Results ────────────────────────────────────────────────────────
+function nextQuestion() {
+  state.currentIndex++;
+  if (state.currentIndex >= state.questions.length) {
+    finishQuiz();
+  } else {
+    renderQuestion();
+  }
+}
+
+async function finishQuiz() {
+  const correct = state.userAnswers.filter(a => a.isCorrect).length;
+  const total = state.userAnswers.length;
+  const pct = Math.round((correct / total) * 100);
+
+  // Score circle
+  const circle = document.getElementById('score-circle');
+  circle.classList.remove('text-success', 'text-warning', 'text-danger');
+  if (pct >= 70) circle.classList.add('text-success');
+  else if (pct >= 50) circle.classList.add('text-warning');
+  else circle.classList.add('text-danger');
+
+  document.getElementById('result-score').textContent = `${correct}/${total}`;
+  document.getElementById('result-pct').textContent = `${pct}%`;
+  document.getElementById('result-mode-label').textContent = `Mode: ${MODE_LABELS[state.mode] || state.mode}`;
+
+  // Breakdown
+  const breakdown = document.getElementById('result-breakdown');
+  breakdown.innerHTML = '';
+  const isChineseQ = state.mode === 'zh_to_en';
+  const isChineseA = state.mode === 'en_to_zh';
+
+  state.userAnswers.forEach((a, idx) => {
+    const div = document.createElement('div');
+    div.className = `breakdown-item ${a.isCorrect ? 'bg-success bg-opacity-10 border border-success border-opacity-25' : 'bg-danger bg-opacity-10 border border-danger border-opacity-25'}`;
+    const qStyle = isChineseQ ? 'font-family:serif;font-size:1.4em;color:#c0392b;' : '';
+    const aStyle = isChineseA ? 'font-family:serif;font-size:1.2em;' : '';
+    div.innerHTML = `
+      <div class="d-flex justify-content-between align-items-start gap-2">
+        <div>
+          <strong>Q${idx + 1}:</strong> <span style="${qStyle}">${a.question}</span>
+          <br>
+          <small class="text-muted">Your answer:</small>
+          <small style="${aStyle}">${a.selectedAnswer}</small>
+          ${!a.isCorrect ? `<br><small class="text-danger">Correct: </small><small style="${aStyle}">${a.correctAnswer}</small>` : ''}
+        </div>
+        <span class="fs-5">${a.isCorrect ? '✅' : '❌'}</span>
+      </div>`;
+    breakdown.appendChild(div);
+  });
+
+  showScreen('screen-results');
+
+  // Save session to Redis (fire and forget)
+  const today = new Date().toISOString().split('T')[0];
+  fetch('/api/history', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: state.name, correct, total, mode: state.mode, date: today }),
+  }).catch(err => console.warn('Could not save session:', err));
+}
+
+// ── History ───────────────────────────────────────────────────────────────
+async function showHistory() {
+  showScreen('screen-history');
+  document.getElementById('history-name').textContent = state.name;
+
+  const tbody = document.getElementById('history-tbody');
+  const loadingEl = document.getElementById('history-loading');
+  tbody.innerHTML = '';
+  loadingEl.style.display = '';
+
+  try {
+    const res = await fetch(`/api/history?name=${encodeURIComponent(state.name)}`);
+    const data = await res.json();
+    loadingEl.style.display = 'none';
+
+    if (!data.sessions || data.sessions.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">No sessions recorded yet</td></tr>';
+      return;
+    }
+
+    data.sessions.forEach(session => {
+      const pct = Math.round((session.correct / session.total) * 100);
+      let badgeClass = pct >= 70 ? 'bg-success' : pct >= 50 ? 'bg-warning text-dark' : 'bg-danger';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="text-muted small">${session.date}</td>
+        <td><small>${MODE_LABELS[session.mode] || session.mode}</small></td>
+        <td class="fw-semibold">${session.correct} / ${session.total}</td>
+        <td><span class="badge ${badgeClass}">${pct}%</span></td>`;
+      tbody.appendChild(tr);
+    });
+  } catch (e) {
+    loadingEl.style.display = 'none';
+    tbody.innerHTML = '<tr><td colspan="4" class="text-danger">Failed to load history</td></tr>';
+  }
+}
+
+// ── Navigation ────────────────────────────────────────────────────────────
+function playAgain() {
+  showScreen('screen-mode');
+  document.getElementById('mode-name-label').textContent = state.name;
+}
+</script>
+</body>
+</html>
+

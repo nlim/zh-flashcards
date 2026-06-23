@@ -1,0 +1,158 @@
+use http_body_util::BodyExt;
+use redis::AsyncCommands;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use tracing::{error, info, warn};
+use vercel_runtime::{AppState, Error, Request, Response, ResponseBody, service_fn};
+
+fn error_response(status: u16, msg: &str) -> Result<Response<ResponseBody>, Error> {
+    Ok(Response::builder()
+        .status(status)
+        .header("Content-Type", "application/json")
+        .body(json!({"error": msg}).to_string().into())
+        .unwrap())
+}
+
+#[derive(Deserialize)]
+struct SaveRequest {
+    name: String,
+    correct: u32,
+    total: u32,
+    mode: String,
+    date: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Session {
+    date: String,
+    correct: u32,
+    total: u32,
+    mode: String,
+}
+
+async fn handler(req: Request, _: AppState) -> Result<Response<ResponseBody>, Error> {
+    let redis_url =
+        std::env::var("REDIS_URL").map_err(|_| "REDIS_URL environment variable is not set")?;
+
+    let client = redis::Client::open(redis_url.as_str())
+        .map_err(|e| format!("Redis client error: {e}"))?;
+
+    let mut con = client
+        .get_async_connection()
+        .await
+        .map_err(|e| format!("Redis connection error: {e}"))?;
+
+    match req.method().as_str() {
+        "GET" => {
+            // Parse ?name=xxx from query string
+            let query = req.uri().query().unwrap_or("");
+            let name = query
+                .split('&')
+                .find_map(|pair| {
+                    let mut parts = pair.splitn(2, '=');
+                    let key = parts.next()?;
+                    if key == "name" {
+                        parts.next()
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or("");
+
+            if name.is_empty() {
+                return error_response(400, "name query parameter is required");
+            }
+
+            let redis_key = format!("sessions:{}", name.to_lowercase());
+            let raw_sessions: Vec<String> = con
+                .lrange(&redis_key, 0, -1)
+                .await
+                .map_err(|e| format!("Redis LRANGE error: {e}"))?;
+
+            let mut sessions: Vec<Session> = raw_sessions
+                .iter()
+                .filter_map(|s| serde_json::from_str(s).ok())
+                .collect();
+
+            sessions.reverse(); // most recent first
+
+            info!(name = name, count = sessions.len(), "Fetched sessions");
+
+            Ok(Response::builder()
+                .status(200)
+                .header("Content-Type", "application/json")
+                .body(json!({"sessions": sessions}).to_string().into())
+                .unwrap())
+        }
+
+        "POST" => {
+            let body_bytes = req
+                .into_body()
+                .collect()
+                .await
+                .map_err(|e| {
+                    error!(error = %e, "Failed to read request body");
+                    format!("Failed to read body: {e}")
+                })?
+                .to_bytes();
+
+            let payload: SaveRequest = serde_json::from_slice(&body_bytes).map_err(|e| {
+                error!(error = %e, "Failed to parse request body");
+                format!("Invalid JSON body: {e}")
+            })?;
+
+            if payload.name.is_empty() {
+                return error_response(400, "name is required");
+            }
+
+            let session = Session {
+                date: payload.date.clone(),
+                correct: payload.correct,
+                total: payload.total,
+                mode: payload.mode.clone(),
+            };
+
+            let redis_key = format!("sessions:{}", payload.name.to_lowercase());
+            let _: () = con
+                .rpush(&redis_key, serde_json::to_string(&session).unwrap())
+                .await
+                .map_err(|e| format!("Redis RPUSH error: {e}"))?;
+
+            info!(
+                name = %payload.name,
+                correct = payload.correct,
+                total = payload.total,
+                mode = %payload.mode,
+                "Saved session"
+            );
+
+            Ok(Response::builder()
+                .status(200)
+                .header("Content-Type", "application/json")
+                .body(json!({"ok": true}).to_string().into())
+                .unwrap())
+        }
+
+        _ => {
+            warn!(method = %req.method(), "Rejected unsupported method");
+            error_response(405, "Method Not Allowed")
+        }
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Error> {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .with_ansi(false)
+        .with_target(false)
+        .without_time()
+        .init();
+
+    let app = service_fn(handler);
+    vercel_runtime::run(app).await
+}
+
