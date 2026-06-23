@@ -44,28 +44,42 @@ async fn handler(req: Request, _: AppState) -> Result<Response<ResponseBody>, Er
 
     match req.method().as_str() {
         "GET" => {
-            // Parse ?name=xxx from query string
+            // Parse query params: name, page
             let query = req.uri().query().unwrap_or("");
-            let name = query
-                .split('&')
-                .find_map(|pair| {
-                    let mut parts = pair.splitn(2, '=');
-                    let key = parts.next()?;
-                    if key == "name" {
-                        parts.next()
-                    } else {
-                        None
-                    }
-                })
-                .unwrap_or("");
+            let mut name = "";
+            let mut page: i64 = 1;
+            for pair in query.split('&') {
+                let mut parts = pair.splitn(2, '=');
+                match (parts.next(), parts.next()) {
+                    (Some("name"), Some(v)) => name = v,
+                    (Some("page"), Some(v)) => page = v.parse().unwrap_or(1).max(1),
+                    _ => {}
+                }
+            }
 
             if name.is_empty() {
                 return error_response(400, "name query parameter is required");
             }
 
+            const PAGE_SIZE: i64 = 10;
+
             let redis_key = format!("sessions:{}", name.to_lowercase());
+
+            let total_count: i64 = con
+                .llen(&redis_key)
+                .await
+                .map_err(|e| format!("Redis LLEN error: {e}"))?;
+
+            let total_pages = ((total_count + PAGE_SIZE - 1) / PAGE_SIZE).max(1);
+            let page = page.min(total_pages);
+
+            // Newest items are at the end of the list (rpush).
+            // For page 1 we want the last PAGE_SIZE items, for page 2 the prior PAGE_SIZE, etc.
+            let end: i64 = total_count - (page - 1) * PAGE_SIZE - 1;
+            let start: i64 = (end - PAGE_SIZE + 1).max(0);
+
             let raw_sessions: Vec<String> = con
-                .lrange(&redis_key, 0, -1)
+                .lrange(&redis_key, start as isize, end as isize)
                 .await
                 .map_err(|e| format!("Redis LRANGE error: {e}"))?;
 
@@ -74,14 +88,29 @@ async fn handler(req: Request, _: AppState) -> Result<Response<ResponseBody>, Er
                 .filter_map(|s| serde_json::from_str(s).ok())
                 .collect();
 
-            sessions.reverse(); // most recent first
+            sessions.reverse(); // most recent first within the page
 
-            info!(name = name, count = sessions.len(), "Fetched sessions");
+            info!(
+                name = name,
+                page = page,
+                total_pages = total_pages,
+                count = sessions.len(),
+                "Fetched sessions"
+            );
 
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(json!({"sessions": sessions}).to_string().into())
+                .body(
+                    json!({
+                        "sessions": sessions,
+                        "page": page,
+                        "total_pages": total_pages,
+                        "total_count": total_count,
+                    })
+                    .to_string()
+                    .into(),
+                )
                 .unwrap())
         }
 
