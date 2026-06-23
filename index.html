@@ -269,6 +269,24 @@
         <button id="btn-begin" class="btn text-white fw-bold flex-grow-1" style="background:var(--red);"
           onclick="beginQuiz()">Start Quiz 🚀</button>
       </div>
+
+      <!-- Quiz focus selector -->
+      <div class="border-top pt-3 mt-3">
+        <p class="small fw-semibold text-muted mb-2">Quiz focus</p>
+        <div class="btn-group w-100" role="group">
+          <input type="radio" class="btn-check" name="quiz-focus" id="focus-normal" value="normal" checked />
+          <label class="btn btn-outline-secondary btn-sm" for="focus-normal">🎲 Normal</label>
+
+          <input type="radio" class="btn-check" name="quiz-focus" id="focus-trouble" value="trouble" />
+          <label class="btn btn-outline-danger btn-sm" for="focus-trouble">🎯 Weak spots</label>
+
+          <input type="radio" class="btn-check" name="quiz-focus" id="focus-fresh" value="fresh" />
+          <label class="btn btn-outline-primary btn-sm" for="focus-fresh">✨ Never seen</label>
+        </div>
+        <div class="mt-2" style="font-size:0.8rem; color:#6c757d;" id="focus-hint-normal">Random selection from the full vocab list.</div>
+        <div class="mt-2" style="font-size:0.8rem; color:#6c757d; display:none;" id="focus-hint-trouble">Prioritises vocab you've gotten wrong ≥ 25% of the time (all time).</div>
+        <div class="mt-2" style="font-size:0.8rem; color:#6c757d; display:none;" id="focus-hint-fresh">Prioritises vocab you've never been quizzed on in this mode.</div>
+      </div>
     </div>
   </div>
 
@@ -426,6 +444,10 @@ const state = {
   historyPage: 1,
   historyTotalPages: 1,
   chartInstance: null,   // Chart.js instance for progress screen
+  troubleMode: false,    // whether current/last quiz used weak-spot selection
+  freshMode: false,      // whether current/last quiz used never-seen selection
+  troubleCount: 0,       // how many trouble items the server included
+  freshCount: 0,         // how many never-seen items the server included
 };
 
 const MODE_LABELS = {
@@ -472,6 +494,15 @@ document.querySelectorAll('input[name="mode"]').forEach(radio => {
   });
 });
 
+// ── Quiz focus hint switcher ──────────────────────────────────────────────
+document.querySelectorAll('input[name="quiz-focus"]').forEach(radio => {
+  radio.addEventListener('change', () => {
+    ['normal', 'trouble', 'fresh'].forEach(v => {
+      document.getElementById(`focus-hint-${v}`).style.display = radio.value === v ? '' : 'none';
+    });
+  });
+});
+
 document.getElementById('input-name').addEventListener('keydown', e => {
   if (e.key === 'Enter') goToMode();
 });
@@ -480,6 +511,9 @@ document.getElementById('input-name').addEventListener('keydown', e => {
 async function beginQuiz() {
   const modeEl = document.querySelector('input[name="mode"]:checked');
   if (!modeEl) return;
+  const focus = document.querySelector('input[name="quiz-focus"]:checked')?.value ?? 'normal';
+  state.troubleMode = focus === 'trouble';
+  state.freshMode   = focus === 'fresh';
   state.mode = modeEl.value;
   state.questions = [];
   state.currentIndex = 0;
@@ -493,13 +527,26 @@ async function beginQuiz() {
     const res = await fetch('/api/quiz', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: state.name, mode: state.mode }),
+      body: JSON.stringify({ name: state.name, mode: state.mode, trouble: state.troubleMode, fresh: state.freshMode }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed to load quiz');
     state.questions = data.questions;
+    state.troubleCount = data.trouble_count ?? 0;
+    state.freshCount   = data.fresh_count   ?? 0;
     showScreen('screen-quiz');
-    document.getElementById('quiz-mode-badge').textContent = MODE_LABELS[state.mode] || state.mode;
+
+    let badge = MODE_LABELS[state.mode] || state.mode;
+    if (state.troubleMode && state.troubleCount > 0) {
+      badge += ` · 🎯 ${state.troubleCount} weak spot${state.troubleCount !== 1 ? 's' : ''}`;
+    } else if (state.troubleMode && state.troubleCount === 0) {
+      badge += ' · 🎯 no weak data yet';
+    } else if (state.freshMode && state.freshCount > 0) {
+      badge += ` · ✨ ${state.freshCount} never seen`;
+    } else if (state.freshMode && state.freshCount === 0) {
+      badge += ' · ✨ all seen — random';
+    }
+    document.getElementById('quiz-mode-badge').textContent = badge;
     renderQuestion();
   } catch (e) {
     alert('Error loading quiz: ' + e.message);
@@ -652,12 +699,19 @@ async function finishQuiz() {
 
   showScreen('screen-results');
 
-  // Save session to Redis (fire and forget)
-  const now = new Date().toISOString(); // full timestamp, e.g. "2026-06-23T14:05:32.000Z"
+  // Save session + per-answer performance data to Redis (fire and forget)
+  const now = new Date().toISOString();
   fetch('/api/history', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: state.name, correct, total, mode: state.mode, date: now }),
+    body: JSON.stringify({
+      name: state.name,
+      correct,
+      total,
+      mode: state.mode,
+      date: now,
+      answers: state.userAnswers.map(a => ({ vocab: a.question, correct: a.isCorrect })),
+    }),
   }).catch(err => console.warn('Could not save session:', err));
 }
 

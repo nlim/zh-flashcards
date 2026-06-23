@@ -19,6 +19,18 @@ Choose one of four quiz directions:
 | **English → Pinyin** | See an English word | Pick the correct pinyin |
 | **English → Characters** | See an English word | Pick the correct Chinese character |
 
+#### Quiz focus
+
+Below the mode cards is a three-way **Quiz focus** selector. The three options are mutually exclusive:
+
+| Option | Badge shown | Behaviour |
+|---|---|---|
+| 🎲 **Normal** | *(mode name only)* | 10 random vocab items from the full list |
+| 🎯 **Weak spots** | `🎯 N weak spots` | Prioritises vocab answered wrong ≥ 25% of the time (all-time). Fills remaining slots with random items. Falls back to fully random if no qualifying items exist. |
+| ✨ **Never seen** | `✨ N never seen` | Prioritises vocab never attempted in this mode. Fills remaining slots with random items. Falls back to fully random if everything has been seen at least once. |
+
+The quiz mode badge in the top-right of the quiz screen shows how many qualifying items were found (e.g. `🎯 5 weak spots`, `✨ 7 never seen`, or `🎯 no weak data yet` / `✨ all seen — random` when the pool is empty).
+
 ### 3. Quiz
 Ten questions are presented one at a time, each with five multiple-choice options (A–E). After selecting an answer:
 - Correct answers are highlighted green.
@@ -26,7 +38,7 @@ Ten questions are presented one at a time, each with five multiple-choice option
 - Click **Next Question** (or **See Results** on the last question).
 
 ### 4. Results screen
-After all ten questions a score circle shows your result (`correct / 10`, percentage). A full question-by-question breakdown lists what you got right and wrong. Results are automatically saved to your history.
+After all ten questions a score circle shows your result (`correct / 10`, percentage). A full question-by-question breakdown lists what you got right and wrong. Results are automatically saved to your history **and** each individual question answer is recorded against the specific vocab item — this is what feeds the Weak spots and Never seen modes.
 
 ### 5. History screen
 Accessible via the **📊 History** button in the navbar (visible after entering your name) or from the results screen. Shows your past sessions in reverse-chronological order, paginated at **10 sessions per page**, with Previous / Next controls.
@@ -104,17 +116,37 @@ Structured logging uses `tracing` + `tracing-subscriber`, emitting JSON-friendly
 #### `api/quiz.rs` — Quiz generation
 
 - **Method:** `POST /api/quiz`
-- **Request body:** `{ "name": "<user>", "mode": "<mode>" }`
-- **Response:** `{ "questions": [ { "question", "options": ["A","B","C","D","E"], "correct_index" } ] }`
+- **Request body:**
+  ```json
+  {
+    "name": "<user>",
+    "mode": "zh_to_en | pinyin_to_en | en_to_pinyin | en_to_zh",
+    "trouble": false,
+    "fresh": false
+  }
+  ```
+  `trouble` and `fresh` are optional booleans (default `false`) and are mutually exclusive — the server checks `trouble` first.
+- **Response:**
+  ```json
+  {
+    "questions": [ { "question": "…", "options": ["A","B","C","D","E"], "correct_index": 2 } ],
+    "trouble_count": 5,
+    "fresh_count": 0
+  }
+  ```
+  `trouble_count` / `fresh_count` tell the frontend how many qualifying items were included (0 means the quiz fell back to random).
 
 Steps:
 1. Validates `mode` against the four accepted values.
 2. Opens a Redis connection via `REDIS_URL`.
 3. Fetches the full `vocab` list from Redis (`LRANGE vocab 0 -1`).
-4. Shuffles the list with `rand` and takes the first 10 items.
-5. For each item, builds the question string and the correct answer according to the mode, then samples 4 random wrong answers from the remaining vocab pool (deduped via `HashSet`).
-6. Inserts the correct answer at a random position among the five options.
-7. Returns all 10 `Question` objects.
+4. If `trouble` or `fresh` is true, also fetches the user's `perf:<name>:<mode>` list in a **single `LRANGE` call** — done before the `ThreadRng` is created, because `ThreadRng` is `!Send` and cannot be held across `.await` points.
+5. Creates `ThreadRng`, shuffles the vocab list.
+6. **Normal mode:** takes the first 10 shuffled items.
+7. **Weak-spots mode:** tallies correct/wrong counts per vocab string across all perf entries; selects items with a ≥ 25% wrong-answer rate (minimum 1 attempt) as the "trouble set"; fills the quiz with those first (up to 10), then tops up with random items from outside the trouble set.
+8. **Never-seen mode:** builds a set of every vocab string ever seen in `perf:<name>:<mode>`; selects items *not* in that set first (up to 10), then tops up with random seen items.
+9. For each selected item, builds the question text and the correct answer according to the mode, samples 4 random distractors from the full vocab pool (deduped via `HashSet`), and inserts the correct answer at a random position among the five options.
+10. Returns all 10 `Question` objects plus `trouble_count` and `fresh_count`.
 
 #### `api/history.rs` — Session history
 
@@ -135,20 +167,39 @@ Steps:
 
 **`POST /api/history`**
 
-- **Request body:** `{ "name", "correct", "total", "mode", "date" }`
-- Serialises a `Session` struct to JSON and appends it to `sessions:<name>` with `RPUSH`.
+- **Request body:**
+  ```json
+  {
+    "name": "<user>",
+    "correct": 7,
+    "total": 10,
+    "mode": "zh_to_en",
+    "date": "2026-06-23T14:05:32.000Z",
+    "answers": [
+      { "vocab": "你好", "correct": true },
+      { "vocab": "谢谢", "correct": false }
+    ]
+  }
+  ```
+  `answers` is optional (omitting it is backwards-compatible). Each entry's `vocab` field is the **question text** shown to the user — the character string for `zh_to_en`, pinyin for `pinyin_to_en`, or the English word for the other two modes.
+- Appends a `Session` JSON to `sessions:<name>` with `RPUSH`.
+- If `answers` is present, bulk-writes one `PerfEntry` per answer to `perf:<name>:<mode>` in a single Redis pipeline:
+  ```json
+  { "date": "2026-06-23T14:05:32.000Z", "vocab": "你好", "correct": true }
+  ```
 - The frontend fires this automatically (fire-and-forget) when the results screen is shown.
 
 ### Storage — Redis
 
-Two key namespaces are used:
+Three key namespaces are used:
 
 | Key | Type | Content |
 |---|---|---|
 | `vocab` | List | One JSON string per vocabulary item: `{ "pinyin", "english", "characters" }` |
 | `sessions:<name>` | List | One JSON string per quiz session: `{ "date", "correct", "total", "mode" }` |
+| `perf:<name>:<mode>` | List | One JSON string per answered question: `{ "date", "vocab", "correct" }` |
 
-Sessions are appended with `RPUSH` (oldest → newest) so that paginating from the tail always yields the most recent entries first.
+`sessions` and `perf` lists are both appended with `RPUSH` (oldest → newest). The `perf` key is per-mode so that, for example, seeing "你好" in a `zh_to_en` quiz and an `en_to_zh` quiz are tracked separately.
 
 #### Loading vocabulary
 
@@ -221,4 +272,3 @@ Make sure `REDIS_URL` is set in your environment or in `.env.local` before start
 | Bootstrap 5.3 | Responsive layout, buttons, cards, badges, tables |
 | Chart.js 4 | Progress chart (scatter + line, time scale) |
 | chartjs-adapter-date-fns | Date/time axis formatting for Chart.js |
-
