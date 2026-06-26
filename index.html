@@ -190,6 +190,8 @@
         onclick="showHistory()">📊 History</button>
       <button id="btn-nav-vocab" class="btn btn-outline-light btn-sm" style="display:none"
         onclick="showVocab()">📝 Vocab</button>
+      <button id="btn-nav-vocab-list" class="btn btn-outline-light btn-sm" style="display:none"
+        onclick="showVocabList()">📖 Browse</button>
     </div>
   </div>
 </nav>
@@ -489,6 +491,71 @@
     </div>
   </div>
 
+  <!-- ── Screen: Vocab List ── -->
+  <div id="screen-vocab-list" class="screen">
+    <div class="card border-0 shadow-sm rounded-4 p-4 mt-3">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+          <h4 class="fw-bold mb-0">📖 Browse Vocabulary</h4>
+          <p class="text-muted small mb-0" id="vocab-list-subtitle">Loading…</p>
+        </div>
+        <div class="d-flex gap-2">
+          <button class="btn btn-outline-secondary btn-sm" onclick="showVocab()">📝 Add</button>
+          <button class="btn btn-outline-secondary btn-sm" onclick="playAgain()">New Quiz</button>
+        </div>
+      </div>
+
+      <!-- Search + per-page -->
+      <div class="row g-2 mb-3">
+        <div class="col">
+          <input id="vocab-list-search" type="search" class="form-control"
+            placeholder="🔍 Search characters, pinyin or English…"
+            oninput="vocabSearchHandler()" />
+        </div>
+        <div class="col-auto">
+          <select id="vocab-list-perpage" class="form-select" onchange="vocabPerPageChanged()">
+            <option value="25" selected>25 / page</option>
+            <option value="50">50 / page</option>
+            <option value="100">100 / page</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Loading / empty states -->
+      <div id="vocab-list-loading" class="text-center text-muted py-5">
+        <div class="spinner-border spinner-border-sm me-2"></div>Loading vocabulary…
+      </div>
+      <div id="vocab-list-empty" class="text-center text-muted py-5" style="display:none;">
+        No vocab items match your search.
+      </div>
+
+      <!-- Table -->
+      <div class="table-responsive" id="vocab-list-table-wrap" style="display:none;">
+        <table class="table table-hover align-middle mb-0">
+          <thead>
+            <tr>
+              <th style="width:2.5rem;">#</th>
+              <th>Characters</th>
+              <th>Pinyin</th>
+              <th>English</th>
+            </tr>
+          </thead>
+          <tbody id="vocab-list-tbody"></tbody>
+        </table>
+      </div>
+
+      <!-- Pagination -->
+      <div id="vocab-list-pagination" class="d-flex justify-content-between align-items-center mt-3"
+        style="display:none;">
+        <button id="btn-vl-prev" class="btn btn-outline-secondary btn-sm"
+          onclick="vocabListChangePage(vocabListState.page - 1)">← Prev</button>
+        <span id="vocab-list-page-info" class="text-muted small"></span>
+        <button id="btn-vl-next" class="btn btn-outline-secondary btn-sm"
+          onclick="vocabListChangePage(vocabListState.page + 1)">Next →</button>
+      </div>
+    </div>
+  </div>
+
 </div><!-- /container -->
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
@@ -544,6 +611,7 @@ function goToMode() {
   document.getElementById('btn-nav-history').style.display = '';
   document.getElementById('btn-nav-progress').style.display = '';
   document.getElementById('btn-nav-vocab').style.display = '';
+  document.getElementById('btn-nav-vocab-list').style.display = '';
   showScreen('screen-mode');
 }
 
@@ -1197,6 +1265,151 @@ async function addVocab() {
     btn.disabled = false;
     btn.innerHTML = 'Add to vocab list ＋';
   }
+}
+
+// ── Vocab List (Browse) ───────────────────────────────────────────────────
+const vocabListState = {
+  all: null,        // null = not loaded yet; [] = loaded (may be empty)
+  filtered: [],     // after search filter
+  page: 1,
+  perPage: 25,
+  searchTimer: null,
+};
+
+async function showVocabList() {
+  showScreen('screen-vocab-list');
+  if (vocabListState.all === null) {
+    await loadAllVocab();
+  } else {
+    renderVocabTable();
+  }
+}
+
+async function loadAllVocab() {
+  document.getElementById('vocab-list-loading').style.display = '';
+  document.getElementById('vocab-list-table-wrap').style.display = 'none';
+  document.getElementById('vocab-list-empty').style.display = 'none';
+  document.getElementById('vocab-list-pagination').style.display = 'none';
+
+  try {
+    const res = await fetch('/api/vocab');
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || res.statusText);
+    }
+    const tsv = await res.text();
+    const lines = tsv.trim().split('\n');
+    // Skip header row (Pinyin\tEnglish\tCharacters)
+    vocabListState.all = lines.slice(1)
+      .filter(l => l.trim())
+      .map(l => {
+        const [pinyin, english, characters] = l.split('\t');
+        return { pinyin: (pinyin || '').trim(), english: (english || '').trim(), characters: (characters || '').trim() };
+      });
+  } catch (e) {
+    document.getElementById('vocab-list-loading').style.display = 'none';
+    document.getElementById('vocab-list-empty').style.display = '';
+    document.getElementById('vocab-list-empty').textContent = 'Failed to load vocabulary: ' + e.message;
+    return;
+  }
+
+  document.getElementById('vocab-list-loading').style.display = 'none';
+  // Reset search and page
+  document.getElementById('vocab-list-search').value = '';
+  vocabListState.page = 1;
+  renderVocabTable();
+}
+
+function vocabSearchHandler() {
+  clearTimeout(vocabListState.searchTimer);
+  vocabListState.searchTimer = setTimeout(() => {
+    vocabListState.page = 1;
+    renderVocabTable();
+  }, 200);
+}
+
+function vocabPerPageChanged() {
+  vocabListState.perPage = parseInt(document.getElementById('vocab-list-perpage').value, 10);
+  vocabListState.page = 1;
+  renderVocabTable();
+}
+
+function vocabListChangePage(p) {
+  const totalPages = Math.ceil(vocabListState.filtered.length / vocabListState.perPage) || 1;
+  vocabListState.page = Math.max(1, Math.min(p, totalPages));
+  renderVocabTable();
+}
+
+function renderVocabTable() {
+  if (!vocabListState.all) return;
+
+  const query = (document.getElementById('vocab-list-search').value || '').toLowerCase().trim();
+
+  vocabListState.filtered = query
+    ? vocabListState.all.filter(v =>
+        v.characters.toLowerCase().includes(query) ||
+        v.pinyin.toLowerCase().includes(query) ||
+        v.english.toLowerCase().includes(query)
+      )
+    : vocabListState.all;
+
+  const total = vocabListState.filtered.length;
+  const perPage = vocabListState.perPage;
+  const totalPages = Math.ceil(total / perPage) || 1;
+  const page = Math.min(vocabListState.page, totalPages);
+  vocabListState.page = page;
+
+  const start = (page - 1) * perPage;
+  const slice = vocabListState.filtered.slice(start, start + perPage);
+
+  const subtitle = document.getElementById('vocab-list-subtitle');
+  subtitle.textContent = total === vocabListState.all.length
+    ? `${total} items`
+    : `${total} of ${vocabListState.all.length} items`;
+
+  const tbody = document.getElementById('vocab-list-tbody');
+  tbody.innerHTML = '';
+
+  const tableWrap = document.getElementById('vocab-list-table-wrap');
+  const emptyEl   = document.getElementById('vocab-list-empty');
+  const pagination = document.getElementById('vocab-list-pagination');
+
+  if (total === 0) {
+    tableWrap.style.display = 'none';
+    pagination.style.display = 'none';
+    emptyEl.style.display = '';
+    emptyEl.textContent = 'No vocab items match your search.';
+    return;
+  }
+
+  emptyEl.style.display = 'none';
+  tableWrap.style.display = '';
+
+  slice.forEach((v, i) => {
+    const tr = document.createElement('tr');
+    const rowNum = start + i + 1;
+    tr.innerHTML = `
+      <td class="text-muted small">${rowNum}</td>
+      <td style="font-family:'PingFang SC','Microsoft YaHei','SimHei',serif;font-size:1.3rem;color:#c0392b;">${escHtml(v.characters)}</td>
+      <td style="font-style:italic;color:#555;">${escHtml(v.pinyin)}</td>
+      <td>${escHtml(v.english)}</td>`;
+    tbody.appendChild(tr);
+  });
+
+  // Pagination
+  if (totalPages > 1) {
+    pagination.style.display = 'flex';
+    document.getElementById('vocab-list-page-info').textContent =
+      `Page ${page} of ${totalPages}`;
+    document.getElementById('btn-vl-prev').disabled = page <= 1;
+    document.getElementById('btn-vl-next').disabled = page >= totalPages;
+  } else {
+    pagination.style.display = 'none';
+  }
+}
+
+function escHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 </script>
 </body>
