@@ -188,6 +188,8 @@
         onclick="showProgress()">📈 Progress</button>
       <button id="btn-nav-history" class="btn btn-outline-light btn-sm" style="display:none"
         onclick="showHistory()">📊 History</button>
+      <button id="btn-nav-vocab" class="btn btn-outline-light btn-sm" style="display:none"
+        onclick="showVocab()">📝 Vocab</button>
     </div>
   </div>
 </nav>
@@ -429,6 +431,56 @@
     </div>
   </div>
 
+  <!-- ── Screen: Vocab ── -->
+  <div id="screen-vocab" class="screen">
+    <div class="card border-0 shadow-sm rounded-4 p-4 mt-3">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+          <h4 class="fw-bold mb-0">📝 Vocab Manager</h4>
+          <p class="text-muted small mb-0">Add new words or download the full list</p>
+        </div>
+        <button class="btn btn-outline-secondary btn-sm" onclick="playAgain()">New Quiz</button>
+      </div>
+
+      <!-- Download -->
+      <div class="d-flex gap-2 mb-4">
+        <button class="btn btn-outline-secondary flex-grow-1" onclick="downloadVocab()">
+          ⬇️ Download vocab as TSV
+        </button>
+      </div>
+
+      <hr />
+
+      <!-- Add Vocab Form -->
+      <h6 class="fw-semibold mb-3">Add a new vocab item</h6>
+      <div id="vocab-alert" class="alert" style="display:none;"></div>
+
+      <div class="mb-3">
+        <label for="vocab-characters" class="form-label fw-semibold">
+          Characters <span class="text-muted fw-normal" style="font-family:serif;">汉字</span>
+        </label>
+        <input id="vocab-characters" type="text" class="form-control"
+          placeholder="e.g. 你好"
+          style="font-family:'PingFang SC','Microsoft YaHei','SimHei',serif; font-size:1.3rem;" />
+      </div>
+
+      <div class="mb-3">
+        <label for="vocab-pinyin" class="form-label fw-semibold">Pinyin</label>
+        <input id="vocab-pinyin" type="text" class="form-control"
+          placeholder="e.g. nǐ hǎo" />
+      </div>
+
+      <div class="mb-3">
+        <label for="vocab-english" class="form-label fw-semibold">English</label>
+        <input id="vocab-english" type="text" class="form-control"
+          placeholder="e.g. hello / how are you" />
+      </div>
+
+      <button id="btn-add-vocab" class="btn text-white fw-bold w-100" style="background:var(--red);"
+        onclick="addVocab()">Add to vocab list ＋</button>
+    </div>
+  </div>
+
 </div><!-- /container -->
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
@@ -483,6 +535,7 @@ function goToMode() {
   document.getElementById('mode-name-label').textContent = name;
   document.getElementById('btn-nav-history').style.display = '';
   document.getElementById('btn-nav-progress').style.display = '';
+  document.getElementById('btn-nav-vocab').style.display = '';
   showScreen('screen-mode');
 }
 
@@ -969,6 +1022,88 @@ async function renderProgress(from, to) {
     loadingEl.style.display = 'none';
     noDataEl.style.display  = '';
     noDataEl.textContent    = 'Failed to load session data.';
+  }
+}
+// ── Vocab Manager ─────────────────────────────────────────────────────────
+function showVocab() {
+  showScreen('screen-vocab');
+  // Clear previous form state
+  ['vocab-characters', 'vocab-pinyin', 'vocab-english'].forEach(id => {
+    const el = document.getElementById(id);
+    el.value = '';
+    el.classList.remove('is-invalid');
+  });
+  document.getElementById('vocab-alert').style.display = 'none';
+}
+
+async function downloadVocab() {
+  try {
+    const res = await fetch('/api/vocab');
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      alert('Failed to download vocab: ' + (data.error || res.statusText));
+      return;
+    }
+    const tsv = await res.text();
+    const blob = new Blob([tsv], { type: 'text/tab-separated-values' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'Chinese Vocab.tsv';
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert('Download failed: ' + e.message);
+  }
+}
+
+async function addVocab() {
+  const characters = document.getElementById('vocab-characters').value.trim();
+  const pinyin     = document.getElementById('vocab-pinyin').value.trim();
+  const english    = document.getElementById('vocab-english').value.trim();
+
+  const alertEl = document.getElementById('vocab-alert');
+  alertEl.style.display = 'none';
+
+  let valid = true;
+  [['vocab-characters', characters], ['vocab-pinyin', pinyin], ['vocab-english', english]].forEach(([id, val]) => {
+    const el = document.getElementById(id);
+    if (!val) { el.classList.add('is-invalid'); valid = false; }
+    else el.classList.remove('is-invalid');
+  });
+  if (!valid) return;
+
+  const btn = document.getElementById('btn-add-vocab');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Saving…';
+
+  try {
+    const res = await fetch('/api/vocab', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pinyin, english, characters }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      alertEl.className = 'alert alert-danger';
+      alertEl.textContent = data.error || 'Failed to save vocab item.';
+      alertEl.style.display = '';
+      return;
+    }
+    alertEl.className = 'alert alert-success';
+    alertEl.innerHTML = `✓ Added <strong style="font-family:serif">${characters}</strong> (${pinyin}) — <em>${english}</em>. Total vocab: ${data.total}.`;
+    alertEl.style.display = '';
+    // Clear form
+    ['vocab-characters', 'vocab-pinyin', 'vocab-english'].forEach(id => {
+      document.getElementById(id).value = '';
+    });
+  } catch (e) {
+    alertEl.className = 'alert alert-danger';
+    alertEl.textContent = 'Network error: ' + e.message;
+    alertEl.style.display = '';
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Add to vocab list ＋';
   }
 }
 </script>
