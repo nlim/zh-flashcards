@@ -38,6 +38,12 @@ struct Question {
     question: String,
     options: Vec<String>,
     correct_index: usize,
+    /// Pinyin for the question character(s) — only set in zh_to_en mode.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    question_pinyin: Option<String>,
+    /// Pinyin for each option — only set in en_to_zh mode (parallel to options vec).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    option_pinyins: Option<Vec<String>>,
 }
 
 /// Stored in Redis under `perf:<user>:<mode>` by history.rs.
@@ -235,8 +241,14 @@ async fn handler(req: Request, _: AppState) -> Result<Response<ResponseBody>, Er
         vocab[..10].to_vec()
     };
 
-    // ── Build questions (unchanged logic) ─────────────────────────────────
+    // ── Build questions ────────────────────────────────────────────────────
     let mut questions: Vec<Question> = Vec::with_capacity(10);
+
+    // Lookup map used to resolve pinyin for character options (en_to_zh mode).
+    let chars_to_pinyin: HashMap<String, String> = vocab
+        .iter()
+        .map(|v| (v.characters.clone(), v.pinyin.clone()))
+        .collect();
 
     for item in &selected {
         let (question_text, correct_answer) = match mode {
@@ -270,10 +282,32 @@ async fn handler(req: Request, _: AppState) -> Result<Response<ResponseBody>, Er
         let mut options: Vec<String> = wrong_options.into_iter().take(4).collect();
         options.insert(correct_pos, correct_answer);
 
+        // Pinyin reveal data -------------------------------------------------
+        // zh_to_en: expose the pinyin for the character shown as the question.
+        let question_pinyin = if mode == "zh_to_en" {
+            Some(item.pinyin.clone())
+        } else {
+            None
+        };
+
+        // en_to_zh: expose the pinyin for every character option.
+        let option_pinyins = if mode == "en_to_zh" {
+            Some(
+                options
+                    .iter()
+                    .map(|opt| chars_to_pinyin.get(opt).cloned().unwrap_or_default())
+                    .collect::<Vec<String>>(),
+            )
+        } else {
+            None
+        };
+
         questions.push(Question {
             question: question_text,
             options,
             correct_index: correct_pos,
+            question_pinyin,
+            option_pinyins,
         });
     }
 

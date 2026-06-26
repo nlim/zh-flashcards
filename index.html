@@ -305,6 +305,7 @@
     <div class="question-card text-center">
       <p class="text-muted small mb-1" id="question-prompt">What does this mean?</p>
       <div id="question-text" class="zh-char py-2">—</div>
+      <div id="question-pinyin-reveal" class="pinyin-text" style="display:none;"></div>
     </div>
 
     <div id="options-container"></div>
@@ -644,6 +645,11 @@ function renderQuestion() {
   document.getElementById('btn-next').style.display = 'none';
   document.getElementById('answer-feedback').style.display = 'none';
 
+  // Reset question pinyin reveal
+  const qPinyinEl = document.getElementById('question-pinyin-reveal');
+  qPinyinEl.textContent = '';
+  qPinyinEl.style.display = 'none';
+
   const isChineseAnswer = state.mode === 'en_to_zh';
 
   q.options.forEach((option, idx) => {
@@ -654,7 +660,14 @@ function renderQuestion() {
       btn.style.fontSize = '1.4rem';
     }
     btn.dataset.idx = idx;
-    btn.innerHTML = `<span class="option-letter">${String.fromCharCode(65 + idx)}</span><span>${option}</span>`;
+
+    // Embed hidden pinyin span for en_to_zh options
+    const pinyin = q.option_pinyins ? q.option_pinyins[idx] : '';
+    const pinyinHtml = pinyin
+      ? `<span class="option-pinyin ms-2" style="display:none; font-size:0.8em; font-style:italic; color:#666; font-family:sans-serif;">(${pinyin})</span>`
+      : '';
+
+    btn.innerHTML = `<span class="option-letter">${String.fromCharCode(65 + idx)}</span><span>${option}</span>${pinyinHtml}`;
     btn.addEventListener('click', () => selectAnswer(idx));
     optionsEl.appendChild(btn);
   });
@@ -687,6 +700,20 @@ function selectAnswer(selectedIdx) {
       btn.classList.add('wrong');
     }
   });
+
+  // Reveal pinyin ────────────────────────────────────────────────────────
+  // zh_to_en: show the pinyin for the question character below it
+  if (q.question_pinyin) {
+    const qPinyinEl = document.getElementById('question-pinyin-reveal');
+    qPinyinEl.textContent = q.question_pinyin;
+    qPinyinEl.style.display = '';
+  }
+  // en_to_zh: show the pinyin beneath every character option
+  if (q.option_pinyins) {
+    document.querySelectorAll('.option-pinyin').forEach(el => {
+      el.style.display = '';
+    });
+  }
 
   // Feedback
   const feedbackEl = document.getElementById('answer-feedback');
