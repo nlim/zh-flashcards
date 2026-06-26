@@ -472,8 +472,15 @@
 
       <div class="mb-3">
         <label for="vocab-english" class="form-label fw-semibold">English</label>
-        <input id="vocab-english" type="text" class="form-control"
-          placeholder="e.g. hello / how are you" />
+        <div class="input-group">
+          <input id="vocab-english" type="text" class="form-control"
+            placeholder="e.g. hello / how are you" />
+          <button id="btn-autofill" class="btn btn-outline-secondary" type="button"
+            onclick="autofillVocab()" title="Auto-fill pinyin and characters using AI">
+            ✨ Auto-fill
+          </button>
+        </div>
+        <div class="form-text">Enter an English word then click <strong>Auto-fill</strong> to have AI suggest the pinyin and characters.</div>
       </div>
 
       <button id="btn-add-vocab" class="btn text-white fw-bold w-100" style="background:var(--red);"
@@ -1057,6 +1064,53 @@ async function downloadVocab() {
   }
 }
 
+async function autofillVocab() {
+  const english = document.getElementById('vocab-english').value.trim();
+  const alertEl = document.getElementById('vocab-alert');
+  alertEl.style.display = 'none';
+
+  if (!english) {
+    document.getElementById('vocab-english').classList.add('is-invalid');
+    document.getElementById('vocab-english').focus();
+    return;
+  }
+  document.getElementById('vocab-english').classList.remove('is-invalid');
+
+  const btn = document.getElementById('btn-autofill');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Filling…';
+
+  try {
+    const res = await fetch('/api/autofill', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ english }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      alertEl.className = 'alert alert-danger';
+      alertEl.textContent = data.error || 'Auto-fill failed.';
+      alertEl.style.display = '';
+      return;
+    }
+    document.getElementById('vocab-pinyin').value = data.pinyin;
+    document.getElementById('vocab-characters').value = data.characters;
+    ['vocab-pinyin', 'vocab-characters'].forEach(id =>
+      document.getElementById(id).classList.remove('is-invalid')
+    );
+    alertEl.className = 'alert alert-info';
+    alertEl.innerHTML = `✨ AI suggested: <strong style="font-family:serif">${data.characters}</strong> (${data.pinyin}). Review and edit if needed before saving.`;
+    alertEl.style.display = '';
+  } catch (e) {
+    alertEl.className = 'alert alert-danger';
+    alertEl.textContent = 'Network error: ' + e.message;
+    alertEl.style.display = '';
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '✨ Auto-fill';
+  }
+}
+
 async function addVocab() {
   const characters = document.getElementById('vocab-characters').value.trim();
   const pinyin     = document.getElementById('vocab-pinyin').value.trim();
@@ -1069,7 +1123,7 @@ async function addVocab() {
   [['vocab-characters', characters], ['vocab-pinyin', pinyin], ['vocab-english', english]].forEach(([id, val]) => {
     const el = document.getElementById(id);
     if (!val) { el.classList.add('is-invalid'); valid = false; }
-    else el.classList.remove('is-invalid');
+    else el.classList.remove('is-invalid');   // clear any previous duplicate highlight
   });
   if (!valid) return;
 
@@ -1085,8 +1139,19 @@ async function addVocab() {
     });
     const data = await res.json();
     if (!res.ok) {
+      // Map duplicate:field codes to a human message + highlight the field
+      const fieldMap = {
+        'duplicate:characters': ['vocab-characters', 'These characters already exist in the vocab list.'],
+        'duplicate:pinyin':     ['vocab-pinyin',     'This pinyin already exists in the vocab list.'],
+        'duplicate:english':    ['vocab-english',    'This English word already exists in the vocab list.'],
+      };
+      const [fieldId, friendlyMsg] = fieldMap[data.error] ?? [null, data.error || 'Failed to save vocab item.'];
+      if (fieldId) {
+        document.getElementById(fieldId).classList.add('is-invalid');
+        document.getElementById(fieldId).focus();
+      }
       alertEl.className = 'alert alert-danger';
-      alertEl.textContent = data.error || 'Failed to save vocab item.';
+      alertEl.textContent = friendlyMsg;
       alertEl.style.display = '';
       return;
     }

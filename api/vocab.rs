@@ -107,7 +107,7 @@ async fn handler(req: Request, _: AppState) -> Result<Response<ResponseBody>, Er
                 return error_response(400, "characters is required");
             }
 
-            // Check for duplicate (same pinyin OR same characters)
+            // Check for duplicate (same pinyin, characters, OR english)
             let raw_items: Vec<String> = con
                 .lrange("vocab", 0, -1)
                 .await
@@ -115,10 +115,14 @@ async fn handler(req: Request, _: AppState) -> Result<Response<ResponseBody>, Er
 
             for raw in &raw_items {
                 if let Ok(existing) = serde_json::from_str::<VocabItem>(raw) {
-                    if existing.pinyin.to_lowercase() == pinyin.to_lowercase()
-                        || existing.characters == characters
-                    {
-                        return error_response(409, "A vocab item with the same pinyin or characters already exists");
+                    if existing.characters == characters {
+                        return error_response(409, "duplicate:characters");
+                    }
+                    if existing.pinyin.to_lowercase() == pinyin.to_lowercase() {
+                        return error_response(409, "duplicate:pinyin");
+                    }
+                    if existing.english.to_lowercase() == english.to_lowercase() {
+                        return error_response(409, "duplicate:english");
                     }
                 }
             }

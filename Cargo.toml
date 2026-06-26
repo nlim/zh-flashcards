@@ -14,6 +14,7 @@ redis = { version = "0.23", features = ["tokio-native-tls-comp"] }
 rand = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 
 [[bin]]
 name = "quiz"
@@ -26,6 +27,10 @@ path = "api/history.rs"
 [[bin]]
 name = "vocab"
 path = "api/vocab.rs"
+
+[[bin]]
+name = "autofill"
+path = "api/autofill.rs"
 
 [profile.release]
 codegen-units = 1
