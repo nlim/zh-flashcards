@@ -27,6 +27,19 @@ struct AddVocabRequest {
     characters: String,
 }
 
+#[derive(Deserialize)]
+struct UpdateVocabRequest {
+    original_characters: String,
+    pinyin: String,
+    english: String,
+    characters: String,
+}
+
+#[derive(Deserialize)]
+struct DeleteVocabRequest {
+    characters: String,
+}
+
 async fn handler(req: Request, _: AppState) -> Result<Response<ResponseBody>, Error> {
     let redis_url =
         std::env::var("REDIS_URL").map_err(|_| "REDIS_URL environment variable is not set")?;
@@ -146,6 +159,151 @@ async fn handler(req: Request, _: AppState) -> Result<Response<ResponseBody>, Er
                     })
                     .to_string()
                     .into(),
+                )
+                .unwrap())
+        }
+
+        // ── PUT /api/vocab — update an existing vocab item ───────────────────
+        "PUT" => {
+            let body_bytes = req
+                .into_body()
+                .collect()
+                .await
+                .map_err(|e| format!("Failed to read body: {e}"))?
+                .to_bytes();
+
+            let payload: UpdateVocabRequest =
+                serde_json::from_slice(&body_bytes).map_err(|e| format!("Invalid JSON body: {e}"))?;
+
+            let original_characters = payload.original_characters.trim().to_string();
+            let pinyin     = payload.pinyin.trim().to_string();
+            let english    = payload.english.trim().to_string();
+            let characters = payload.characters.trim().to_string();
+
+            if original_characters.is_empty() { return error_response(400, "original_characters is required"); }
+            if pinyin.is_empty()     { return error_response(400, "pinyin is required"); }
+            if english.is_empty()    { return error_response(400, "english is required"); }
+            if characters.is_empty() { return error_response(400, "characters is required"); }
+
+            let raw_items: Vec<String> = con
+                .lrange("vocab", 0, -1)
+                .await
+                .map_err(|e| format!("Redis LRANGE error: {e}"))?;
+
+            // Find the index of the item to update
+            let mut target_idx: Option<usize> = None;
+            for (i, raw) in raw_items.iter().enumerate() {
+                if let Ok(item) = serde_json::from_str::<VocabItem>(raw) {
+                    if item.characters == original_characters {
+                        target_idx = Some(i);
+                        break;
+                    }
+                }
+            }
+
+            let idx = match target_idx {
+                Some(i) => i,
+                None => return error_response(404, "Vocab item not found"),
+            };
+
+            // Duplicate check (skip the item being updated)
+            for (i, raw) in raw_items.iter().enumerate() {
+                if i == idx { continue; }
+                if let Ok(existing) = serde_json::from_str::<VocabItem>(raw) {
+                    if existing.characters == characters {
+                        return error_response(409, "duplicate:characters");
+                    }
+                    if existing.pinyin.to_lowercase() == pinyin.to_lowercase() {
+                        return error_response(409, "duplicate:pinyin");
+                    }
+                    if existing.english.to_lowercase() == english.to_lowercase() {
+                        return error_response(409, "duplicate:english");
+                    }
+                }
+            }
+
+            let updated = VocabItem {
+                pinyin: pinyin.clone(),
+                english: english.clone(),
+                characters: characters.clone(),
+            };
+            let _: () = con
+                .lset("vocab", idx as isize, serde_json::to_string(&updated).unwrap())
+                .await
+                .map_err(|e| format!("Redis LSET error: {e}"))?;
+
+            info!(original = %original_characters, characters = %characters, "Updated vocab item");
+
+            Ok(Response::builder()
+                .status(200)
+                .header("Content-Type", "application/json")
+                .body(
+                    json!({
+                        "ok": true,
+                        "item": { "pinyin": pinyin, "english": english, "characters": characters },
+                    })
+                    .to_string()
+                    .into(),
+                )
+                .unwrap())
+        }
+
+        // ── DELETE /api/vocab — delete a vocab item ───────────────────────────
+        "DELETE" => {
+            let body_bytes = req
+                .into_body()
+                .collect()
+                .await
+                .map_err(|e| format!("Failed to read body: {e}"))?
+                .to_bytes();
+
+            let payload: DeleteVocabRequest =
+                serde_json::from_slice(&body_bytes).map_err(|e| format!("Invalid JSON body: {e}"))?;
+
+            let characters = payload.characters.trim().to_string();
+            if characters.is_empty() {
+                return error_response(400, "characters is required");
+            }
+
+            let raw_items: Vec<String> = con
+                .lrange("vocab", 0, -1)
+                .await
+                .map_err(|e| format!("Redis LRANGE error: {e}"))?;
+
+            // Find the exact JSON string to remove
+            let mut raw_to_remove: Option<String> = None;
+            for raw in &raw_items {
+                if let Ok(item) = serde_json::from_str::<VocabItem>(raw) {
+                    if item.characters == characters {
+                        raw_to_remove = Some(raw.clone());
+                        break;
+                    }
+                }
+            }
+
+            let raw = match raw_to_remove {
+                Some(r) => r,
+                None => return error_response(404, "Vocab item not found"),
+            };
+
+            let removed: i64 = con
+                .lrem("vocab", 1isize, raw)
+                .await
+                .map_err(|e| format!("Redis LREM error: {e}"))?;
+
+            if removed == 0 {
+                return error_response(404, "Vocab item not found");
+            }
+
+            info!(characters = %characters, "Deleted vocab item");
+
+            Ok(Response::builder()
+                .status(200)
+                .header("Content-Type", "application/json")
+                .body(
+                    json!({ "ok": true, "total": raw_items.len() - 1 })
+                        .to_string()
+                        .into(),
                 )
                 .unwrap())
         }
