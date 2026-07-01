@@ -1,0 +1,34 @@
+name: Rust CI
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: swatinem/rust-cache@v2
+
+      - name: Build quiz
+        run: cargo build --bin quiz
+
+      - name: Build history
+        run: cargo build --bin history
+
+      - name: Build vocab
+        run: cargo build --bin vocab
+
+      - name: Build autofill
+        run: cargo build --bin autofill
