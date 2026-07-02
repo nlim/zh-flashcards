@@ -63,7 +63,7 @@ async fn handler(req: Request, _: AppState) -> Result<Response<ResponseBody>, Er
         .map_err(|e| format!("Redis connection error: {e}"))?;
 
     match req.method().as_str() {
-        // ── GET /api/vocab — download all vocab as JSON (with flags if name provided) ────────────────────
+        // ── GET /api/vocab — fetch vocab; TSV if Accept: text/tab-separated-values, else JSON with flags ──
         "GET" => {
             let query = req.uri().query().unwrap_or("");
             let mut name = "";
@@ -73,6 +73,13 @@ async fn handler(req: Request, _: AppState) -> Result<Response<ResponseBody>, Er
                     name = v;
                 }
             }
+
+            let wants_tsv = req
+                .headers()
+                .get("accept")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.contains("text/tab-separated-values"))
+                .unwrap_or(false);
 
             let raw_items: Vec<String> = con
                 .lrange("vocab", 0, -1)
@@ -87,6 +94,19 @@ async fn handler(req: Request, _: AppState) -> Result<Response<ResponseBody>, Er
                 .iter()
                 .filter_map(|s| serde_json::from_str(s).ok())
                 .collect();
+
+            if wants_tsv {
+                // Return TSV: characters\tpinyin\tenglish
+                let mut tsv = String::from("characters\tpinyin\tenglish\n");
+                for v in &vocab_items {
+                    tsv.push_str(&format!("{}\t{}\t{}\n", v.characters, v.pinyin, v.english));
+                }
+                return Ok(Response::builder()
+                    .status(200)
+                    .header("Content-Type", "text/tab-separated-values; charset=utf-8")
+                    .body(tsv.into())
+                    .unwrap());
+            }
 
             if name.is_empty() {
                 // Return basic JSON without flags

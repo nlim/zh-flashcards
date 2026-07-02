@@ -1191,7 +1191,7 @@ function showVocab() {
 
 async function downloadVocab() {
   try {
-    const res = await fetch('/api/vocab');
+    const res = await fetch('/api/vocab', { headers: { 'Accept': 'text/tab-separated-values' } });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       alert('Failed to download vocab: ' + (data.error || res.statusText));
@@ -1343,7 +1343,7 @@ async function loadAllVocab() {
   document.getElementById('vocab-list-pagination').style.display = 'none';
 
   try {
-    const name = sessionStorage.getItem('username') || '';
+    const name = state.name || '';
     const res = await fetch(`/api/vocab?name=${encodeURIComponent(name)}`);
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
