@@ -505,14 +505,22 @@
         </div>
       </div>
 
-      <!-- Search + per-page -->
+      <!-- Search + Filters -->
       <div class="row g-2 mb-3">
         <div class="col">
           <input id="vocab-list-search" type="search" class="form-control"
             placeholder="🔍 Search characters, pinyin or English…"
             oninput="vocabSearchHandler()" />
         </div>
-        <div class="col-auto">
+        <div class="col-auto d-flex gap-2">
+          <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" id="filter-weak" onchange="vocabFilterChanged()">
+            <label class="form-check-label" for="filter-weak">Weak Spots</label>
+          </div>
+          <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" id="filter-fresh" onchange="vocabFilterChanged()">
+            <label class="form-check-label" for="filter-fresh">Never Seen</label>
+          </div>
           <select id="vocab-list-perpage" class="form-select" onchange="vocabPerPageChanged()">
             <option value="25" selected>25 / page</option>
             <option value="50">50 / page</option>
@@ -1335,20 +1343,14 @@ async function loadAllVocab() {
   document.getElementById('vocab-list-pagination').style.display = 'none';
 
   try {
-    const res = await fetch('/api/vocab');
+    const name = sessionStorage.getItem('username') || '';
+    const res = await fetch(`/api/vocab?name=${encodeURIComponent(name)}`);
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       throw new Error(data.error || res.statusText);
     }
-    const tsv = await res.text();
-    const lines = tsv.trim().split('\n');
-    // Skip header row (Pinyin\tEnglish\tCharacters)
-    vocabListState.all = lines.slice(1)
-      .filter(l => l.trim())
-      .map(l => {
-        const [pinyin, english, characters] = l.split('\t');
-        return { pinyin: (pinyin || '').trim(), english: (english || '').trim(), characters: (characters || '').trim() };
-      });
+    const data = await res.json();
+    vocabListState.all = data.items || [];
   } catch (e) {
     document.getElementById('vocab-list-loading').style.display = 'none';
     document.getElementById('vocab-list-empty').style.display = '';
@@ -1383,18 +1385,30 @@ function vocabListChangePage(p) {
   renderVocabTable();
 }
 
+function vocabFilterChanged() {
+  vocabListState.page = 1;
+  renderVocabTable();
+}
+
+
 function renderVocabTable() {
   if (!vocabListState.all) return;
 
   const query = (document.getElementById('vocab-list-search').value || '').toLowerCase().trim();
+  const filterWeak = document.getElementById('filter-weak').checked;
+  const filterFresh = document.getElementById('filter-fresh').checked;
 
-  vocabListState.filtered = query
-    ? vocabListState.all.filter(v =>
-        v.characters.toLowerCase().includes(query) ||
-        v.pinyin.toLowerCase().includes(query) ||
-        v.english.toLowerCase().includes(query)
-      )
-    : vocabListState.all;
+  vocabListState.filtered = vocabListState.all.filter(v => {
+    const matchesQuery = !query || 
+      v.characters.toLowerCase().includes(query) ||
+      v.pinyin.toLowerCase().includes(query) ||
+      v.english.toLowerCase().includes(query);
+    
+    const matchesWeak = !filterWeak || v.is_weak;
+    const matchesFresh = !filterFresh || v.is_fresh;
+
+    return matchesQuery && matchesWeak && matchesFresh;
+  });
 
   const total = vocabListState.filtered.length;
   const perPage = vocabListState.perPage;
@@ -1439,6 +1453,10 @@ function renderVocabTable() {
       <td style="font-style:italic;color:#555;">${escHtml(v.pinyin)}</td>
       <td>${escHtml(v.english)}</td>
       <td class="text-end text-nowrap">
+        <div class="d-flex align-items-center justify-content-end gap-1 me-2">
+          ${v.is_weak ? '<span class="flag-badge bg-danger text-white">Weak</span>' : ''}
+          ${v.is_fresh ? '<span class="flag-badge bg-info text-dark">New</span>' : ''}
+        </div>
         <button class="btn btn-outline-secondary btn-sm py-0 px-1 me-1" title="Edit"
           onclick="openEditModal(${allIdx})">✏️</button>
         <button class="btn btn-outline-danger btn-sm py-0 px-1" title="Delete"
