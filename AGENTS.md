@@ -57,6 +57,8 @@ Before pushing, verify all Vercel serverless function binaries compile:
 
 ```bash
 cargo build --bin vocab --bin quiz --bin history --bin autofill
+# Or run a full build analysis
+cargo build analyze
 ```
 
 This covers all `[[bin]]` entries in `Cargo.toml`. Fix any compiler errors before pushing — Vercel will fail to deploy if any binary fails to compile.
