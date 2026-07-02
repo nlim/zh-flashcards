@@ -113,7 +113,7 @@ async fn handler(req: Request, _: AppState) -> Result<Response<ResponseBody>, Er
                     let perf_key = format!("perf:{}:{}", user_name, mode);
                     let raw_perf: Vec<String> = con.lrange(&perf_key, 0, -1).await.unwrap_or_default();
                     for raw in raw_perf {
-                        if let Ok(entry) = serde_json::from_str::<PerfEntry>(raw) {
+                        if let Ok(entry) = serde_json::from_str::<PerfEntry>(&raw) {
                             seen_set.insert(entry.vocab.clone());
                             let s = stats.entry(entry.vocab).or_insert((0, 0));
                             s.1 += 1;
@@ -141,7 +141,7 @@ async fn handler(req: Request, _: AppState) -> Result<Response<ResponseBody>, Er
                         
                         let mut is_weak = false;
                         for r in representations {
-                            if let Some(&(wrong, total)) = stats.get(*r) {
+                            if let Some(&(wrong, total)) = stats.get(r) {
                                 if total >= 1 && (wrong as f64 / total as f64) >= 0.25 {
                                     is_weak = true;
                                     break;
