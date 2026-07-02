@@ -50,3 +50,13 @@ This repository is a browser-based Chinese vocabulary quiz application deployed 
 - **Local Dev**: Run `./dev.sh` (runs `cargo build` and `vercel dev`).
 - **Data Seeding**: Use `REDIS_URL=... python load_vocab.py`.
 - **Env Vars**: Requires `REDIS_URL`, `AUTH_USER`, and `AUTH_PASS`.
+
+## ✅ Verifying Rust Serverless Functions Compile
+
+Before pushing, verify all Vercel serverless function binaries compile:
+
+```bash
+cargo build --bin vocab --bin quiz --bin history --bin autofill
+```
+
+This covers all `[[bin]]` entries in `Cargo.toml`. Fix any compiler errors before pushing — Vercel will fail to deploy if any binary fails to compile.
